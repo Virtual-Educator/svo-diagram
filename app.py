@@ -7,7 +7,7 @@ import numpy as np
 from collections import defaultdict
 import math
 
-# --- spaCy Model Loading --- (Same as before)
+# --- spaCy Model Loading ---
 @st.cache_resource
 def load_nlp_model():
     model_name = "en_core_web_sm"
@@ -16,7 +16,7 @@ def load_nlp_model():
         st.info(f"Downloading spaCy model: {model_name}..."); from spacy.cli import download
         download(model_name); return spacy.load(model_name)
 
-# --- Helper Functions for NLP Analysis --- (Largely same, minor tweaks if needed)
+# --- Helper Functions for NLP Analysis ---
 def get_modifier_text(modifier_token):
     if modifier_token.dep_ == 'poss':
         case_marker = next((child for child in modifier_token.children if child.dep_ == 'case'), None)
@@ -54,11 +54,19 @@ def get_direct_object(verb_token):
 def get_adverbial_modifiers_of_verb(verb_token):
      return [child for child in verb_token.children if child.dep_ == "advmod"]
 
-# --- Drawing Functions using Matplotlib --- (Largely same)
-MODIFIER_SLANT_OFFSET_X = 0.03; MODIFIER_SLANT_OFFSET_Y = 0.08; LINE_WIDTH = 1.5
-FONT_SIZE_MAIN = 12; FONT_SIZE_MOD = 10; Y_BASE_START = 0.8
-CLAUSE_Y_SPACING = 0.7; PP_Y_OFFSET = 0.15; PP_X_SPACING = 0.4
-TEXT_Y_OFFSET = 0.02; DIVIDER_EXTENSION = 0.04; CONJUNCTION_H_MARGIN = 0.05
+# --- Drawing Functions using Matplotlib ---
+MODIFIER_SLANT_OFFSET_X = 0.03 
+MODIFIER_SLANT_OFFSET_Y = 0.08
+LINE_WIDTH = 1.5
+FONT_SIZE_MAIN = 12
+FONT_SIZE_MOD = 10
+Y_BASE_START = 0.8
+CLAUSE_Y_SPACING = 0.7
+PP_Y_OFFSET = 0.15
+PP_X_SPACING = 0.4
+TEXT_Y_OFFSET = 0.02
+DIVIDER_EXTENSION = 0.04
+CONJUNCTION_H_MARGIN = 0.05
 
 def estimate_text_width(text, fontsize=FONT_SIZE_MAIN): return len(text) * fontsize * 0.0065
 
@@ -194,6 +202,10 @@ def draw_reed_kellogg(doc, fig, ax):
                 cc_token = next((child for child in token.children if child.dep_ == "cc"), None)
                 if not cc_token: # Sometimes it's a left sibling of the conjoined verb
                      cc_token = next((left for left in token.lefts if left.dep_ == "cc" and left.head == token),None)
+                     
+                # If still no cc_token, try looking at siblings of second verb 
+                if not cc_token:
+                    cc_token = next((sib for sib in token.head.children if sib.dep_ == "cc"), None)
 
                 if cc_token:
                     verb1 = token.head # The verb it's conjoined to
@@ -237,10 +249,6 @@ def draw_reed_kellogg(doc, fig, ax):
             current_y_base_for_clause -= CLAUSE_Y_SPACING
 
     # Draw conjunction lines
-    if identified_conjunctions:
-        st.write(f"Debug: Identified Conjunctions: {[{'cc':c['cc_token'].text, 'v1':c['verb1'].text, 'v2':c['verb2'].text} for c in identified_conjunctions]}")
-        st.write(f"Debug: Drawn Clause Verb Coords: { {k:v for k,v in drawn_clauses_verb_coords.items()} }")
-
     for conj_info in identified_conjunctions:
         cc_token = conj_info['cc_token']
         verb1 = conj_info['verb1']
@@ -250,31 +258,39 @@ def draw_reed_kellogg(doc, fig, ax):
             v1_x, v1_y = drawn_clauses_verb_coords[verb1.i]
             v2_x, v2_y = drawn_clauses_verb_coords[verb2.i]
 
-            # Y-coordinate for the horizontal part of the conjunction line
-            conj_line_y = (v1_y + v2_y) / 2.0
-            # If clauses are too close or y-values are inverted from expectation, adjust
-            if abs(v1_y - v2_y) < CLAUSE_Y_SPACING * 0.4: # If baselines are close
-                 conj_line_y = min(v1_y, v2_y) - CLAUSE_Y_SPACING * 0.3 # Place it below the lower clause's midpoint to ensure separation
-
-
-            # 1. Vertical line from verb1 (at v1_x) to conj_line_y
-            ax.plot([v1_x, v1_x], [v1_y, conj_line_y], color='black', linestyle=':', linewidth=LINE_WIDTH)
-            # 2. Vertical line from verb2 (at v2_x) to conj_line_y
-            ax.plot([v2_x, v2_x], [v2_y, conj_line_y], color='black', linestyle=':', linewidth=LINE_WIDTH)
-            # 3. Horizontal line connecting the two vertical steps at their x-positions
-            ax.plot([min(v1_x, v2_x), max(v1_x, v2_x)], [conj_line_y, conj_line_y], color='black', linestyle=':', linewidth=LINE_WIDTH)
+            # FIX 1: Calculate better conjunction line Y position
+            # For the horizontal line, we want it positioned midway between the clauses
+            # but allowing for enough space to display the conjunction text
+            conj_line_y = (v1_y + v2_y) / 2
             
+            # Make sure we're at a good distance from both lines
+            min_gap = CLAUSE_Y_SPACING * 0.35  
+            if v1_y - conj_line_y < min_gap: conj_line_y = v1_y - min_gap
+            if conj_line_y - v2_y < min_gap: conj_line_y = v2_y + min_gap
+
+            # FIX 2: Draw solid lines instead of dotted
+            # 1. Vertical line from verb1 down to conj_line_y
+            ax.plot([v1_x, v1_x], [v1_y, conj_line_y], color='black', linewidth=LINE_WIDTH)
+            
+            # 2. Vertical line from verb2 up to conj_line_y
+            ax.plot([v2_x, v2_x], [v2_y, conj_line_y], color='black', linewidth=LINE_WIDTH)
+            
+            # 3. Horizontal line connecting the two vertical lines
+            ax.plot([v1_x, v2_x], [conj_line_y, conj_line_y], color='black', linewidth=LINE_WIDTH)
+            
+            # FIX 3: Improved text placement for conjunction
             cc_text = cc_token.text
-            text_x_pos = (v1_x + v2_x) / 2.0 
+            text_x_pos = (v1_x + v2_x) / 2.0  # Middle point between the two verbs
+            
+            # Add text for conjunction with a small white background for readability
             ax.text(text_x_pos, conj_line_y + TEXT_Y_OFFSET, cc_text,
-                    ha='center', va='bottom', fontsize=FONT_SIZE_MOD,
-                    bbox=dict(facecolor='white', edgecolor='none', pad=0.1, alpha=0.7), zorder=3) # semi-transparent bbox
+                   ha='center', va='bottom', fontsize=FONT_SIZE_MOD,
+                   bbox=dict(facecolor='white', edgecolor='none', pad=1))
         else:
             missing_verbs_msg = []
             if verb1.i not in drawn_clauses_verb_coords: missing_verbs_msg.append(f"{verb1.text} (idx {verb1.i})")
             if verb2.i not in drawn_clauses_verb_coords: missing_verbs_msg.append(f"{verb2.text} (idx {verb2.i})")
             st.warning(f"Skipping conjunction '{cc_token.text}': Coords missing for {', '.join(missing_verbs_msg)}.")
-
 
     # Calculate the total height based on the last clause's y position
     # If no clauses drawn, current_y_base_for_clause remains Y_BASE_START
@@ -292,7 +308,7 @@ def draw_reed_kellogg(doc, fig, ax):
     return max_total_width, final_diagram_height
 
 
-# --- Streamlit App Main Function --- (Same as before)
+# --- Streamlit App Main Function ---
 def main():
     nlp = load_nlp_model()
     st.title("Reed-Kellogg Sentence Diagrammer 📊")
