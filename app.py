@@ -12,17 +12,17 @@ except OSError:
 
 # Helper to get noun phrase with modifiers
 def get_full_noun_phrase(token):
-    words = [token.text]
-    for child in token.children:
-        if child.dep_ in ["det", "amod", "compound"]:
-            words.insert(0, child.text)
-    return " ".join(words)
+    words = [(child.i, child.text) for child in token.children if child.dep_ in ["det", "amod", "compound"]]
+    words.append((token.i, token.text))
+    words.sort()
+    return " ".join([w[1] for w in words])
 
 # Define a function to draw a Reed-Kellogg-style diagram with modifiers
+
 def draw_basic_diagram(subject, verb, obj, subject_mod=None, object_mod=None):
     fig, ax = plt.subplots(figsize=(8, 3))
-    ax.plot([0.1, 0.9], [1, 1], color="black")  # baseline for subject-predicate
-    ax.plot([0.5, 0.5], [1, 0.85], color="black")  # subject-predicate divider
+    ax.plot([0.1, 0.9], [1, 1], color="black")  # subject-predicate baseline
+    ax.plot([0.5, 0.5], [1, 0.85], color="black")  # divider
 
     ax.text(0.3, 1.05, subject, ha='center', va='bottom', fontsize=12)
     ax.text(0.7, 1.05, verb, ha='center', va='bottom', fontsize=12)
@@ -32,12 +32,12 @@ def draw_basic_diagram(subject, verb, obj, subject_mod=None, object_mod=None):
         ax.text(0.9, 1.05, obj, ha='center', va='bottom', fontsize=12)
 
     if subject_mod:
-        ax.plot([0.25, 0.3], [0.85, 1], color="black")  # slanted line
-        ax.text(0.25, 0.8, subject_mod, ha='center', va='top', fontsize=10)
+        ax.plot([0.27, 0.3], [0.85, 1], color="black")  # slanted line
+        ax.text(0.27, 0.8, subject_mod, ha='center', va='top', fontsize=10)
 
     if object_mod:
-        ax.plot([0.85, 0.9], [0.85, 1], color="black")
-        ax.text(0.85, 0.8, object_mod, ha='center', va='top', fontsize=10)
+        ax.plot([0.87, 0.9], [0.85, 1], color="black")
+        ax.text(0.87, 0.8, object_mod, ha='center', va='top', fontsize=10)
 
     ax.axis("off")
     return fig
