@@ -1,4 +1,7 @@
 import streamlit as st
+# Must set page config first before any other st commands
+st.set_page_config(layout="wide", page_title="Reed-Kellogg Sentence Diagrammer")
+
 import spacy
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,7 +19,6 @@ def load_nlp_model():
 
 nlp = load_nlp_model()
 
-st.set_page_config(layout="wide", page_title="Reed-Kellogg Sentence Diagrammer")
 st.title("Reed-Kellogg Sentence Diagrammer")
 
 # Helper: gather modifiers for a token
