@@ -26,16 +26,21 @@ sentence = st.text_input("Enter a sentence to diagram:")
 
 if sentence:
     doc = nlp(sentence)
-    subject = verb = obj = ""
+    subject = obj = ""
+    verb_tokens = []
 
-    # Simple SVO extraction
+    # Enhanced SVO extraction with auxiliary verbs
     for token in doc:
         if token.dep_ == "nsubj":
             subject = token.text
+        elif token.dep_ == "aux":
+            verb_tokens.append(token.text)
         elif token.dep_ == "ROOT":
-            verb = token.text
+            verb_tokens.append(token.text)
         elif token.dep_ == "dobj":
             obj = token.text
+
+    verb = " ".join(verb_tokens)
 
     if subject and verb:
         fig = draw_basic_diagram(subject, verb, obj)
