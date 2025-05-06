@@ -2,13 +2,12 @@ import streamlit as st
 import spacy
 import matplotlib.pyplot as plt
 
-# Load spaCy model with fallback using subprocess to install it properly
+# Load spaCy model with fallback using spacy.cli (works better in hosted environments)
 try:
     nlp = spacy.load("en_core_web_sm")
 except OSError:
-    import subprocess
-    import sys
-    subprocess.run([sys.executable, "-m", "spacy", "download", "en_core_web_sm"], check=True)
+    from spacy.cli import download
+    download("en_core_web_sm")
     nlp = spacy.load("en_core_web_sm")
 
 # Define a function to draw a basic Reed-Kellogg-style diagram
