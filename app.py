@@ -18,6 +18,16 @@ def get_modifiers(token):
     return [child.text for child in sorted(token.children, key=lambda c: c.i)
             if child.dep_ in ["det", "amod", "compound"]]
 
+# Helper: build full noun phrase text
+def get_full_np(token):
+    parts = []
+    # include det, compound, amod
+    for child in sorted(token.children, key=lambda c: c.i):
+        if child.dep_ in ["det", "compound", "amod"]:
+            parts.append(child.text)
+    parts.append(token.text)
+    return " ".join(parts)
+
 # Streamlit interface
 text = st.text_input("Enter a sentence to diagram:")
 if text:
@@ -25,26 +35,39 @@ if text:
     # Identify main elements
     subj = next((t for t in doc if t.dep_ == "nsubj"), None)
     root = next((t for t in doc if t.dep_ == "ROOT"), None)
-    obj = next((t for t in doc if t.dep_ == "dobj"), None)
-    # fallback to prepositional object of first prep
-    if not obj and root:
+    # Determine object phrase (direct or prepositional)
+    obj_phrase = None
+    object_mods = []
+
+    # Direct object
+    dobj = next((t for t in doc if t.dep_ == "dobj"), None)
+    if dobj:
+        obj_phrase = get_full_np(dobj)
+        object_mods = get_modifiers(dobj)
+    elif root:
+        # Prepositional object
         prep = next((c for c in root.children if c.dep_ == "prep"), None)
         if prep:
-            obj = next((c for c in prep.children if c.dep_ == "pobj"), None)
+            pobj = next((c for c in prep.children if c.dep_ == "pobj"), None)
+            if pobj:
+                # include prep plus full noun phrase
+                np = get_full_np(pobj)
+                obj_phrase = f"{prep.text} {np}"
+                object_mods = get_modifiers(pobj)
     
     if subj and root:
         # Coordinates for baseline
-        x_subj, x_root, x_obj = 0.1, 0.5, (0.9 if obj else None)
+        x_subj, x_root, x_obj = 0.1, 0.5, (0.9 if obj_phrase else None)
         y_base = 0.5
         # Build baseline points
         xs = [x_subj, x_root]
         ys = [y_base, y_base]
-        if x_obj:
+        if x_obj is not None:
             xs.append(x_obj)
             ys.append(y_base)
         
         fig, ax = plt.subplots(figsize=(12, 5))
-        # Draw baseline
+        # Draw baseline horizontally
         ax.plot(xs, ys, color='black')
         # Divider at root
         ax.plot([x_root, x_root], [y_base, y_base - 0.1], color='black')
@@ -56,9 +79,8 @@ if text:
         # Labels on baseline
         ax.text(x_subj, y_base + 0.02, subj.text, ha='center', va='bottom', fontsize=12)
         ax.text(x_root, y_base + 0.02, verb, ha='center', va='bottom', fontsize=12)
-        if obj and x_obj:
-            # show only head for obj phrase
-            ax.text(x_obj, y_base + 0.02, obj.text, ha='center', va='bottom', fontsize=12)
+        if obj_phrase and x_obj is not None:
+            ax.text(x_obj, y_base + 0.02, obj_phrase, ha='center', va='bottom', fontsize=12)
         
         # Draw subject modifiers slanted
         for i, mod in enumerate(get_modifiers(subj)):
@@ -68,8 +90,8 @@ if text:
             ax.text(sl_x, sl_y + 0.02, mod, ha='center', va='bottom', fontsize=10)
         
         # Draw object modifiers slanted
-        if obj and x_obj:
-            for i, mod in enumerate(get_modifiers(obj)):
+        if obj_phrase and x_obj is not None:
+            for i, mod in enumerate(object_mods):
                 sl_y = y_base + 0.1 + i * 0.05
                 sl_x = x_obj + 0.05 + i * 0.02
                 ax.plot([x_obj, sl_x], [y_base, sl_y], color='black')
