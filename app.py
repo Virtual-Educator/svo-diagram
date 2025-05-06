@@ -10,13 +10,35 @@ except OSError:
     download("en_core_web_sm")
     nlp = spacy.load("en_core_web_sm")
 
-# Define a function to draw a basic Reed-Kellogg-style diagram
-def draw_basic_diagram(subject, verb, obj):
-    fig, ax = plt.subplots(figsize=(6, 2))
-    ax.plot([0, 1], [1, 1], color="black")  # horizontal base line
-    ax.text(0, 1.05, subject, ha='center', va='bottom', fontsize=12)
-    ax.text(0.5, 1.05, verb, ha='center', va='bottom', fontsize=12)
-    ax.text(1, 1.05, obj, ha='center', va='bottom', fontsize=12)
+# Helper to get noun phrase with modifiers
+def get_full_noun_phrase(token):
+    words = [token.text]
+    for child in token.children:
+        if child.dep_ in ["det", "amod", "compound"]:
+            words.insert(0, child.text)
+    return " ".join(words)
+
+# Define a function to draw a Reed-Kellogg-style diagram with modifiers
+def draw_basic_diagram(subject, verb, obj, subject_mod=None, object_mod=None):
+    fig, ax = plt.subplots(figsize=(8, 3))
+    ax.plot([0.1, 0.9], [1, 1], color="black")  # baseline for subject-predicate
+    ax.plot([0.5, 0.5], [1, 0.85], color="black")  # subject-predicate divider
+
+    ax.text(0.3, 1.05, subject, ha='center', va='bottom', fontsize=12)
+    ax.text(0.7, 1.05, verb, ha='center', va='bottom', fontsize=12)
+
+    if obj:
+        ax.plot([0.7, 0.9], [1, 1], color="black")
+        ax.text(0.9, 1.05, obj, ha='center', va='bottom', fontsize=12)
+
+    if subject_mod:
+        ax.plot([0.25, 0.3], [0.85, 1], color="black")  # slanted line
+        ax.text(0.25, 0.8, subject_mod, ha='center', va='top', fontsize=10)
+
+    if object_mod:
+        ax.plot([0.85, 0.9], [0.85, 1], color="black")
+        ax.text(0.85, 0.8, object_mod, ha='center', va='top', fontsize=10)
+
     ax.axis("off")
     return fig
 
@@ -26,24 +48,29 @@ sentence = st.text_input("Enter a sentence to diagram:")
 
 if sentence:
     doc = nlp(sentence)
-    subject = obj = ""
+    subject = obj = subject_mod = object_mod = ""
     verb_tokens = []
 
-    # Enhanced SVO extraction with auxiliary verbs
     for token in doc:
         if token.dep_ == "nsubj":
-            subject = token.text
+            subject = get_full_noun_phrase(token)
+            for child in token.children:
+                if child.dep_ == "det":
+                    subject_mod = child.text
         elif token.dep_ == "aux":
             verb_tokens.append(token.text)
         elif token.dep_ == "ROOT":
             verb_tokens.append(token.text)
         elif token.dep_ == "dobj":
-            obj = token.text
+            obj = get_full_noun_phrase(token)
+            for child in token.children:
+                if child.dep_ == "det":
+                    object_mod = child.text
 
     verb = " ".join(verb_tokens)
 
     if subject and verb:
-        fig = draw_basic_diagram(subject, verb, obj)
+        fig = draw_basic_diagram(subject, verb, obj, subject_mod, object_mod)
         st.pyplot(fig)
     else:
         st.warning("This prototype only handles simple subject-verb-object sentences.")
