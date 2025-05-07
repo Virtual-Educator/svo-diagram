@@ -1,5 +1,5 @@
 import streamlit as st
-# Must be the first Streamlit command
+# Must be the first Streamlit command in your script
 st.set_page_config(layout="wide", page_title="Reed-Kellogg Sentence Diagrammer")
 
 import spacy
@@ -19,15 +19,15 @@ def load_nlp_model():
         return spacy.load(model_name)
 
 # --- Diagram Constants ---
-DIVIDER_ABOVE = 0.1    # extent above baseline
-DIVIDER_BELOW = 0.05   # extent below baseline
+DIVIDER_ABOVE = 0.1    # how far divider extends above baseline
+DIVIDER_BELOW = 0.05   # how far divider extends below baseline
 MODIFIER_SLANT_OFFSET_X = 0.03
 MODIFIER_SLANT_OFFSET_Y = 0.08
 LINE_WIDTH = 1.5
 FONT_SIZE_MAIN = 12
 FONT_SIZE_MOD = 10
 Y_BASE_START = 0.8    # top clause baseline
-CLAUSE_Y_SPACING = 0.7  # clause vertical spacing
+CLAUSE_Y_SPACING = 0.7  # vertical spacing between clauses
 PP_Y_OFFSET = 0.15
 PP_X_SPACING = 0.4
 TEXT_Y_OFFSET = 0.02
@@ -44,7 +44,7 @@ def get_modifier_text(token):
 def get_modifiers(token, dep_types=None):
     if dep_types is None:
         dep_types = ["det","amod","compound","nummod","poss","advmod","appos","partmod"]
-    return [c for c in token.children if c.dep_ in dep_types]
+    return [c for c in sorted(token.children, key=lambda x: x.i) if c.dep_ in dep_types]
 
 
 def get_full_text(token):
@@ -60,13 +60,13 @@ def get_verb_phrase(verb):
 
 
 def get_prep_phrases(token):
-    pps = []
+    results = []
     for c in token.children:
         if c.dep_ == 'prep':
-            pobj = next((x for x in c.children if x.dep_ == 'pobj'), None)
-            if pobj:
-                pps.append((c, pobj))
-    return pps
+            obj = next((x for x in c.children if x.dep_ == 'pobj'), None)
+            if obj:
+                results.append((c, obj))
+    return results
 
 
 def get_direct_object(verb):
@@ -94,7 +94,7 @@ def estimate_text_width(text, fontsize=FONT_SIZE_MAIN):
 
 
 def draw_modifiers_recursive(ax, x, y, token):
-    subs = get_modifiers(token, ['advmod'])
+    subs = [c for c in token.children if c.dep_ == 'advmod']
     if subs:
         draw_modifiers_on_baseline(ax, x, y, subs, is_sub=True)
 
@@ -104,152 +104,201 @@ def draw_modifiers_on_baseline(ax, x_center, y_base, mods, is_sub=False):
         txt = get_modifier_text(m)
         w = estimate_text_width(txt, FONT_SIZE_MOD)
         factor = 0.6 if is_sub else 1.0
-        base = x_center + (i - (len(mods)-1)/2)*(w+MODIFIER_SLANT_OFFSET_X)*factor*0.8
-        sl_x = base + MODIFIER_SLANT_OFFSET_X*(i+1)*factor
-        sl_y = y_base - MODIFIER_SLANT_OFFSET_Y*(i+1)*factor
-        ax.plot([base, sl_x],[y_base, sl_y],'k',lw=LINE_WIDTH)
-        ax.text(sl_x, sl_y+TEXT_Y_OFFSET, txt, ha='left', va='bottom', fontsize=FONT_SIZE_MOD)
+        base = x_center + (i - (len(mods)-1)/2) * (w + MODIFIER_SLANT_OFFSET_X) * factor * 0.8
+        sl_x = base + MODIFIER_SLANT_OFFSET_X * (i+1) * factor
+        sl_y = y_base - MODIFIER_SLANT_OFFSET_Y * (i+1) * factor
+        ax.plot([base, sl_x], [y_base, sl_y], 'k', lw=LINE_WIDTH)
+        ax.text(sl_x, sl_y + TEXT_Y_OFFSET, txt, ha='left', va='bottom', fontsize=FONT_SIZE_MOD)
         draw_modifiers_recursive(ax, sl_x, sl_y, m)
 
 
-def draw_adverbial_modifiers(ax, x, y, advs):
+def draw_adverbial_modifiers(ax, x, y_base, advs):
     for i, adv in enumerate(advs):
         txt = get_modifier_text(adv)
         w = estimate_text_width(txt, FONT_SIZE_MOD)
-        length = max(w*1.1, 0.2)
-        y_end = y - PP_Y_OFFSET - i*MODIFIER_SLANT_OFFSET_Y*1.5
-        ax.plot([x, x],[y, y_end],'k',lw=LINE_WIDTH)
-        ax.plot([x-length/2, x+length/2],[y_end, y_end],'k',lw=LINE_WIDTH)
-        ax.text(x, y_end+TEXT_Y_OFFSET, txt, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
-        draw_modifiers_recursive(ax, x, y_end, adv)
+        length = max(w * 1.1, 0.2)
+        y = y_base - PP_Y_OFFSET - i * MODIFIER_SLANT_OFFSET_Y * 1.5
+        ax.plot([x, x], [y_base, y], 'k', lw=LINE_WIDTH)
+        ax.plot([x - length/2, x + length/2], [y, y], 'k', lw=LINE_WIDTH)
+        ax.text(x, y + TEXT_Y_OFFSET, txt, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
+        draw_modifiers_recursive(ax, x, y, adv)
 
 
-def draw_prep_phrases(ax, x, y, pps):
-    for i,(prep,obj) in enumerate(pps):
+def draw_prep_phrases(ax, x, y_base, pps):
+    for i, (prep, obj) in enumerate(pps):
         pt, ot = prep.text, get_full_text(obj)
         pw = estimate_text_width(pt, FONT_SIZE_MOD)
         ow = estimate_text_width(ot, FONT_SIZE_MOD)
-        x0 = x + (i-(len(pps)-1)/2)*PP_X_SPACING
-        y0 = y - PP_Y_OFFSET
-        ax.plot([x,x0],[y,y0],'k',lw=LINE_WIDTH)
-        plen = max(pw*1.1,0.15)
-        ax.plot([x0,x0+plen],[y0,y0],'k',lw=LINE_WIDTH)
-        ax.text(x0+plen/2, y0+TEXT_Y_OFFSET, pt, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
-        ox0 = x0+plen
-        olen = max(ow*1.1,0.2)
-        ax.plot([ox0, ox0+olen],[y0,y0],'k',lw=LINE_WIDTH)
-        ax.text(ox0+olen/2, y0+TEXT_Y_OFFSET, ot, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
+        x0 = x + (i - (len(pps)-1)/2) * PP_X_SPACING
+        y = y_base - PP_Y_OFFSET
+        ax.plot([x, x0], [y_base, y], 'k', lw=LINE_WIDTH)
+        plen = max(pw * 1.1, 0.15)
+        ax.plot([x0, x0 + plen], [y, y], 'k', lw=LINE_WIDTH)
+        ax.text(x0 + plen/2, y + TEXT_Y_OFFSET, pt, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
+        ox0 = x0 + plen
+        olen = max(ow * 1.1, 0.2)
+        ax.plot([ox0, ox0 + olen], [y, y], 'k', lw=LINE_WIDTH)
+        ax.text(ox0 + olen/2, y + TEXT_Y_OFFSET, ot, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
         mods = get_modifiers(obj)
-        if mods: draw_modifiers_on_baseline(ax, ox0+olen/2, y0, mods)
+        if mods: draw_modifiers_on_baseline(ax, ox0 + olen/2, y, mods)
         nested = get_prep_phrases(obj)
-        if nested: draw_prep_phrases(ax, ox0+olen/2, y0, nested)
+        if nested: draw_prep_phrases(ax, ox0 + olen/2, y, nested)
 
 
-def draw_appositives(ax, x, y, apps):
-    for app in apps:
+def draw_appositives(ax, x_center, y_base, appos_list):
+    for app in appos_list:
         txt = get_full_text(app)
         w = estimate_text_width(txt, FONT_SIZE_MOD)
-        slx = x + w/2
-        sly = y - PP_Y_OFFSET
-        ax.plot([x,slx],[y,sly],'k',lw=LINE_WIDTH)
-        ax.plot([slx,slx+w],[sly,sly],'k',lw=LINE_WIDTH)
-        ax.text(slx+w/2, sly+TEXT_Y_OFFSET, txt, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
+        sl_x = x_center + w/2
+        sl_y = y_base - PP_Y_OFFSET
+        ax.plot([x_center, sl_x], [y_base, sl_y], 'k', lw=LINE_WIDTH)
+        ax.plot([sl_x, sl_x + w], [sl_y, sl_y], 'k', lw=LINE_WIDTH)
+        ax.text(sl_x + w/2, sl_y + TEXT_Y_OFFSET, txt, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
         mods = get_modifiers(app)
-        if mods: draw_modifiers_on_baseline(ax, slx+w/2, sly, mods)
+        if mods: draw_modifiers_on_baseline(ax, sl_x + w/2, sl_y, mods)
 
-# --- Clause Diagram ---
-def _draw_single_clause_diagram(ax, verb, y, x_offset=0):
-    # Subject
+# --- Core Clause Drawing ---
+def _draw_single_clause_diagram(ax, verb, y_base, x_offset=0):
     subj = next((t for t in verb.lefts if t.dep_ in ['nsubj','nsubjpass']), None)
-    if verb.dep_=='conj' and not subj:
-        h=verb.head
-        while h.dep_=='conj': h=h.head
-        subj=next((t for t in h.lefts if t.dep_ in ['nsubj','nsubjpass']),None)
-    if not subj: return None,None,None
-    # texts
-    s= get_full_text(subj); v= get_verb_phrase(verb)
-    sw=estimate_text_width(s); vw=estimate_text_width(v)
-    # positions
-    xs0=0.3+x_offset; xs1=xs0+sw; xdiv=xs1
-    xv0=xdiv; xv1=xv0+vw; xvc=(xv0+xv1)/2
-    # baselines
-    ax.plot([xs0,xs1],[y,y],'k',lw=LINE_WIDTH)
-    ax.plot([xv0,xv1],[y,y],'k',lw=LINE_WIDTH)
-    # subject-verb divider
-    ax.plot([xdiv,xdiv],[y-DIVIDER_BELOW*1.2,y+DIVIDER_ABOVE],'k',lw=LINE_WIDTH)
-    # indirect object
-    iobj=get_indirect_object(verb)
-    if iobj:
-        io=get_full_text(iobj); iow=estimate_text_width(io)
-        slx= xvc-iow/2; sly=y-PP_Y_OFFSET
-        ax.plot([xvc,slx],[y,sly],'k',lw=LINE_WIDTH)
-        ax.plot([slx,slx+iow],[sly,sly],'k',lw=LINE_WIDTH)
-        ax.text(slx+iow/2,sly+TEXT_Y_OFFSET,io,ha='center',va='bottom',fontsize=FONT_SIZE_MAIN)
-    # object or complement
-    dobj=get_direct_object(verb); comp=dobj or get_subject_complement(verb)
-    xe=xv1
-    if comp:
-        ct=get_full_text(comp); cw=estimate_text_width(ct)
-        xc0=xv1; xc1=xc0+cw
-        ax.plot([xc0,xc1],[y,y],'k',lw=LINE_WIDTH)
-        # verb-object divider up only
-        ax.plot([xv1,xv1],[y,y+DIVIDER_ABOVE],'k',lw=LINE_WIDTH)
-        ax.text((xc0+xc1)/2,y+TEXT_Y_OFFSET,ct,ha='center',va='bottom',fontsize=FONT_SIZE_MAIN)
-        xe=xc1
-    # labels
-    ax.text((xs0+xs1)/2,y+TEXT_Y_OFFSET,s,ha='center',va='bottom',fontsize=FONT_SIZE_MAIN)
-    ax.text(xvc,y+TEXT_Y_OFFSET,v,ha='center',va='bottom',fontsize=FONT_SIZE_MAIN)
-    # modifiers & pps for subj, comp, verb
-    mods=get_modifiers(subj)
-    if mods: draw_modifiers_on_baseline(ax,(xs0+xs1)/2,y,mods)
-    pps=get_prep_phrases(subj)
-    if pps: draw_prep_phrases(ax,(xs0+xs1)/2,y,pps)
-    advs=get_adverbial_modifiers(verb)
-    if advs: draw_adverbial_modifiers(ax,xvc,y,advs)
-    ppsv=get_prep_phrases(verb)
-    if ppsv: draw_prep_phrases(ax,xvc,y,ppsv)
-    return xe+0.3+x_offset, xvc, y
+    if verb.dep_ == 'conj' and not subj:
+        head = verb.head
+        while head and head.dep_ == 'conj': head = head.head
+        subj = next((t for t in head.lefts if t.dep_ in ['nsubj','nsubjpass']), None)
+    if not subj:
+        return None, None, None
 
-# --- Full Diagram ---
-def draw_reed_kellogg(doc,fig,ax):
-    verbs=[]; conj=[]
-    for t in doc:
-        if t.pos_ in ['VERB','AUX']:
-            if t.dep_=='ROOT': verbs.append(t)
-            elif t.dep_=='conj' and t.head.pos_ in ['VERB','AUX']:
-                if t.head not in verbs: verbs.append(t.head)
-                verbs.append(t)
-                cc=next((c for c in t.children if c.dep_=='cc'),None)
-                if cc: conj.append((cc,t.head,t))
-    verbs=sorted(set(verbs),key=lambda x:x.i)
-    y=Y_BASE_START; coords={}; mx=0
+    # Text and widths
+    s_txt = get_full_text(subj)
+    v_txt = get_verb_phrase(verb)
+    s_w = estimate_text_width(s_txt)
+    v_w = estimate_text_width(v_txt)
+
+    # Positions
+    x_s0 = 0.3 + x_offset
+    x_s1 = x_s0 + s_w
+    x_div_sv = x_s1
+    x_v0 = x_div_sv
+    x_v1 = x_v0 + v_w
+    x_vc = (x_v0 + x_v1) / 2
+
+    # Baselines
+    ax.plot([x_s0, x_s1], [y_base, y_base], 'k', lw=LINE_WIDTH)
+    ax.plot([x_v0, x_v1], [y_base, y_base], 'k', lw=LINE_WIDTH)
+    ax.plot([x_div_sv, x_div_sv], [y_base - DIVIDER_BELOW, y_base + DIVIDER_ABOVE], 'k', lw=LINE_WIDTH)
+
+    # Indirect object
+    iobj = get_indirect_object(verb)
+    if iobj:
+        io_txt = get_full_text(iobj)
+        io_w = estimate_text_width(io_txt)
+        sl_x0 = x_vc - io_w/2
+        sl_y0 = y_base - PP_Y_OFFSET
+        ax.plot([x_vc, sl_x0], [y_base, sl_y0], 'k', lw=LINE_WIDTH)
+        ax.plot([sl_x0, sl_x0 + io_w], [sl_y0, sl_y0], 'k', lw=LINE_WIDTH)
+        ax.text(sl_x0 + io_w/2, sl_y0 + TEXT_Y_OFFSET, io_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
+
+    # Direct object or complement
+    dobj = get_direct_object(verb)
+    comp = dobj or get_subject_complement(verb)
+    x_end = x_v1
+    if comp:
+        c_txt = get_full_text(comp)
+        c_w = estimate_text_width(c_txt)
+        x_c0 = x_v1
+        x_c1 = x_c0 + c_w
+        ax.plot([x_c0, x_c1], [y_base, y_base], 'k', lw=LINE_WIDTH)
+        # verb-object divider up only
+        ax.plot([x_v1, x_v1], [y_base, y_base + DIVIDER_ABOVE], 'k', lw=LINE_WIDTH)
+        ax.text((x_c0 + x_c1)/2, y_base + TEXT_Y_OFFSET, c_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
+        x_end = x_c1
+
+        # Appositives
+        appos = get_appositives(comp)
+        if appos:
+            draw_appositives(ax, (x_c0 + x_c1)/2, y_base, appos)
+
+        # Modifiers & PPs on object
+        mods_c = get_modifiers(comp)
+        if mods_c: draw_modifiers_on_baseline(ax, (x_c0 + x_c1)/2, y_base, mods_c)
+        pps_c = get_prep_phrases(comp)
+        if pps_c: draw_prep_phrases(ax, (x_c0 + x_c1)/2, y_base, pps_c)
+
+    # Labels
+    ax.text((x_s0 + x_s1)/2, y_base + TEXT_Y_OFFSET, s_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
+    ax.text(x_vc, y_base + TEXT_Y_OFFSET, v_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
+
+    # Subject modifiers & PPs
+    mods_s = get_modifiers(subj)
+    if mods_s: draw_modifiers_on_baseline(ax, (x_s0 + x_s1)/2, y_base, mods_s)    
+    pps_s = get_prep_phrases(subj)
+    if pps_s: draw_prep_phrases(ax, (x_s0 + x_s1)/2, y_base, pps_s)
+
+    # Verb modifiers & PPs
+    advs = get_adverbial_modifiers(verb)
+    if advs: draw_adverbial_modifiers(ax, x_vc, y_base, advs)
+    pps_v = get_prep_phrases(verb)
+    if pps_v: draw_prep_phrases(ax, x_vc, y_base, pps_v)
+
+    return x_end + 0.3 + x_offset, x_vc, y_base
+
+# --- Diagram Function for Complex Sentences ---
+def draw_reed_kellogg(doc, fig, ax):
+    verbs = []
+    conjunctions = []
+    for tok in doc:
+        if tok.pos_ in ['VERB','AUX']:
+            if tok.dep_ == 'ROOT':
+                verbs.append(tok)
+            elif tok.dep_ == 'conj' and tok.head.pos_ in ['VERB','AUX']:
+                if tok.head not in verbs:
+                    verbs.append(tok.head)
+                verbs.append(tok)
+                cc = next((c for c in tok.children if c.dep_=='cc'),
+                          next((l for l in tok.lefts if l.dep_=='cc'), None))
+                if cc:
+                    v1, v2 = tok.head, tok
+                    if v1.i > v2.i: v1, v2 = v2, v1
+                    conjunctions.append((cc, v1, v2))
+    verbs = sorted(set(verbs), key=lambda t: t.i)
+
+    y = Y_BASE_START
+    coords = {}
+    max_w = 0
     for v in verbs:
-        w,x,yc=_draw_single_clause_diagram(ax,v,y)
-        if w: mx=max(mx,w); coords[v.i]=(x,yc)
-        y-=CLAUSE_Y_SPACING
-    dash=(0,(4,2))
-    for cc,v1,v2 in conj:
+        w, cx, cy = _draw_single_clause_diagram(ax, v, y)
+        if w:
+            max_w = max(max_w, w)
+            coords[v.i] = (cx, cy)
+        y -= CLAUSE_Y_SPACING
+
+    dash = (0, (4, 2))
+    for cc, v1, v2 in conjunctions:
         if v1.i in coords and v2.i in coords:
-            x1,y1=coords[v1.i]; x2,y2=coords[v2.i]
-            my=(y1+y2)/2
-            ax.plot([x1,x1],[y1,my],'k',lw=LINE_WIDTH,linestyle=dash)
-            ax.plot([x2,x2],[y2,my],'k',lw=LINE_WIDTH,linestyle=dash)
-            ax.plot([x1,x2],[my,my],'k',lw=LINE_WIDTH,linestyle=dash)
-            ax.text((x1+x2)/2,my+TEXT_Y_OFFSET,cc.text,ha='center',va='bottom',fontsize=FONT_SIZE_MOD)
-    return mx,Y_BASE_START-y+0.5
+            x1, y1 = coords[v1.i]
+            x2, y2 = coords[v2.i]
+            mid_y = (y1 + y2) / 2
+            ax.plot([x1, x1], [y1, mid_y], 'k', lw=LINE_WIDTH, linestyle=dash)
+            ax.plot([x2, x2], [y2, mid_y], 'k', lw=LINE_WIDTH, linestyle=dash)
+            ax.plot([x1, x2], [mid_y, mid_y], 'k', lw=LINE_WIDTH, linestyle=dash)
+            ax.text((x1+x2)/2, mid_y + TEXT_Y_OFFSET, cc.text, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
+
+    height = Y_BASE_START - y + 0.5
+    return max_w, height
 
 # --- Streamlit App ---
 def main():
-    nlp=load_nlp_model()
+    nlp = load_nlp_model()
     st.title("Reed-Kellogg Sentence Diagrammer")
-    text=st.text_area("Enter sentence:",value="The parents ate the cake and the children ate the cookies.")
+    text = st.text_area("Enter sentence:", value="The parents ate the cake and the children ate the cookies.")
     if st.button("Diagram Sentence") and text.strip():
-        doc=nlp(text.strip())
-        fig,ax=plt.subplots(figsize=(12,8))
-        w,h=draw_reed_kellogg(doc,fig,ax)
-        pad=w*0.1; vpad=h*0.1
-        ax.set_xlim(-pad,w+pad); ax.set_ylim(-vpad,h+vpad)
-        ax.axis('off'); st.pyplot(fig)
+        doc = nlp(text.strip())
+        fig, ax = plt.subplots(figsize=(12, 8))
+        w, h = draw_reed_kellogg(doc, fig, ax)
+        if w and h:
+            ax.set_xlim(0, w)
+            ax.set_ylim(0, h)
+            ax.axis('off')
+            st.pyplot(fig)
     st.subheader("Examples")
     for ex in [
         "He wrote a letter to his friend.",
@@ -258,6 +307,8 @@ def main():
         "They ate and she danced."
     ]:
         if st.button(ex):
-            st.session_state['sentence_input']=ex; st.rerun()
+            st.session_state['sentence_input'] = ex
+            st.experimental_rerun()
 
-if __name__=='__main__': main()
+if __name__ == '__main__':
+    main()
