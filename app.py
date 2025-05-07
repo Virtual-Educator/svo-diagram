@@ -1,4 +1,7 @@
 import streamlit as st
+# Must be the first Streamlit command in your script
+st.set_page_config(layout="wide", page_title="Reed-Kellogg Sentence Diagrammer")
+
 import spacy
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,8 +20,8 @@ def load_nlp_model():
         return spacy.load(model_name)
 
 # --- Diagram Constants ---
-DIVIDER_ABOVE = 0.8    # percent of extension above baseline
-DIVIDER_BELOW = 0.2    # percent of extension below baseline
+DIVIDER_ABOVE = 0.8    # percent above baseline
+DIVIDER_BELOW = 0.2    # percent below baseline
 MODIFIER_SLANT_OFFSET_X = 0.03
 MODIFIER_SLANT_OFFSET_Y = 0.08
 LINE_WIDTH = 1.5
@@ -86,7 +89,6 @@ def get_appositives(noun):
 def get_adverbial_modifiers(verb):
     return [c for c in verb.children if c.dep_ == 'advmod']
 
-
 # --- Drawing Utilities ---
 def estimate_text_width(text, fontsize=FONT_SIZE_MAIN):
     return len(text) * fontsize * 0.0065
@@ -138,7 +140,6 @@ def draw_prep_phrases(ax, x, y_base, pps):
         olen = max(ow*1.1,0.2)
         ax.plot([ox0, ox0+olen],[y,y],'k',lw=LINE_WIDTH)
         ax.text(ox0+olen/2, y+TEXT_Y_OFFSET, txt_o, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
-        # modifiers and nested PPs
         mods = get_modifiers(obj)
         if mods: draw_modifiers_on_baseline(ax, ox0+olen/2, y, mods)
         nested = get_prep_phrases(obj)
@@ -154,7 +155,6 @@ def draw_appositives(ax, x_center, y_base, appos_list):
         ax.plot([x_center, sl_x],[y_base,sl_y],'k',lw=LINE_WIDTH)
         ax.plot([sl_x, sl_x+w],[sl_y,sl_y],'k',lw=LINE_WIDTH)
         ax.text(sl_x+w/2, sl_y+TEXT_Y_OFFSET, txt, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
-        # modifiers on appositive
         mods = get_modifiers(app)
         if mods: draw_modifiers_on_baseline(ax, sl_x+w/2, sl_y, mods)
 
@@ -167,13 +167,10 @@ def draw_subordinate_clause(ax, vx, vy, clause, y_offset):
     ax.plot([stem_x, stem_x],[stem_y,end_y],'k',lw=LINE_WIDTH, linestyle=(0,(4,2)))
     if marker:
         ax.text(stem_x, stem_y+TEXT_Y_OFFSET, marker.text, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
-    # draw clause baseline below
     return _draw_single_clause_diagram(ax, clause, end_y)
-
 
 # --- Core Clause Drawing ---
 def _draw_single_clause_diagram(ax, verb, y_base, x_offset=0):
-    # find subject
     subj = next((t for t in verb.lefts if t.dep_ in ['nsubj','nsubjpass']), None)
     if verb.dep_=='conj' and not subj:
         head=verb.head
@@ -181,24 +178,19 @@ def _draw_single_clause_diagram(ax, verb, y_base, x_offset=0):
         subj = next((t for t in head.lefts if t.dep_ in ['nsubj','nsubjpass']), None)
     if not subj:
         return None, None, None
-    # texts and widths
     s_txt = get_full_text(subj)
     v_txt = get_verb_phrase(verb)
     s_w = estimate_text_width(s_txt)
     v_w = estimate_text_width(v_txt)
-    # positions
     x_subj_start = 0.3 + x_offset
     x_subj_end = x_subj_start + s_w
     x_div = x_subj_end
     x_verb_start = x_div
     x_verb_end = x_verb_start + v_w
     x_verb_center = (x_verb_start + x_verb_end)/2
-    # baseline lines
     ax.plot([x_subj_start,x_subj_end],[y_base,y_base],'k',lw=LINE_WIDTH)
     ax.plot([x_verb_start,x_verb_end],[y_base,y_base],'k',lw=LINE_WIDTH)
-    # divider
     ax.plot([x_div,x_div],[y_base-DIVIDER_BELOW,y_base+DIVIDER_ABOVE],'k',lw=LINE_WIDTH)
-    # indirect object
     iobj = get_indirect_object(verb)
     if iobj:
         io_txt = get_full_text(iobj)
@@ -208,7 +200,6 @@ def _draw_single_clause_diagram(ax, verb, y_base, x_offset=0):
         ax.plot([x_verb_center, sl_x],[y_base,sl_y],'k',lw=LINE_WIDTH)
         ax.plot([sl_x, sl_x+io_w],[sl_y,sl_y],'k',lw=LINE_WIDTH)
         ax.text(sl_x+io_w/2, sl_y+TEXT_Y_OFFSET, io_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
-    # direct obj or complement
     dobj = get_direct_object(verb)
     comp = dobj or get_subject_complement(verb)
     x_end = x_verb_end
@@ -218,42 +209,33 @@ def _draw_single_clause_diagram(ax, verb, y_base, x_offset=0):
         x_c_start = x_verb_end
         x_c_end = x_c_start + c_w
         ax.plot([x_c_start,x_c_end],[y_base,y_base],'k',lw=LINE_WIDTH)
-        # if direct obj, full divider
         if dobj:
             ax.plot([x_verb_end,x_verb_end],[y_base-DIVIDER_BELOW,y_base+DIVIDER_ABOVE],'k',lw=LINE_WIDTH)
         else:
-            # slanted for complement
             ax.plot([x_verb_end, x_verb_end+0.15],[y_base,y_base-0.15],'k',lw=LINE_WIDTH)
         ax.text((x_c_start+x_c_end)/2, y_base+TEXT_Y_OFFSET, c_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
         x_end = x_c_end
-        # appositives on object
         appos = get_appositives(comp)
         if appos:
             draw_appositives(ax, (x_c_start+x_c_end)/2, y_base, appos)
-        # nested modifiers & PPs on comp
         mods_c = get_modifiers(comp)
         if mods_c: draw_modifiers_on_baseline(ax, (x_c_start+x_c_end)/2, y_base, mods_c)
         pps_c = get_prep_phrases(comp)
         if pps_c: draw_prep_phrases(ax, (x_c_start+x_c_end)/2, y_base, pps_c)
-    # labels
     ax.text((x_subj_start+x_subj_end)/2, y_base+TEXT_Y_OFFSET, s_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
     ax.text(x_verb_center, y_base+TEXT_Y_OFFSET, v_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
-    # subject modifiers & PPs
     subs = get_modifiers(subj)
     if subs: draw_modifiers_on_baseline(ax, (x_subj_start+x_subj_end)/2, y_base, subs)
     pps_s = get_prep_phrases(subj)
     if pps_s: draw_prep_phrases(ax, (x_subj_start+x_subj_end)/2, y_base, pps_s)
-    # adverbs & PPs on verb
     advs = get_adverbial_modifiers(verb)
     if advs: draw_adverbial_modifiers(ax, x_verb_center, y_base, advs)
     pps_v = get_prep_phrases(verb)
     if pps_v: draw_prep_phrases(ax, x_verb_center, y_base, pps_v)
     return x_end+0.3+x_offset, x_verb_center, y_base
 
-
 # --- Main Diagram Function ---
 def draw_reed_kellogg(doc, fig, ax):
-    # identify main and conjoined verbs
     verbs = []
     conjunctions = []
     for tok in doc:
@@ -268,17 +250,15 @@ def draw_reed_kellogg(doc, fig, ax):
                     if v1.i>v2.i: v1,v2=v2,v1
                     conjunctions.append((cc,v1,v2))
     verbs = sorted(set(verbs), key=lambda t: t.i)
-    # draw clauses stacked
     y = Y_BASE_START
     coords = {}
     width = 0
-    for i,v in enumerate(verbs):
+    for v in verbs:
         w, cx, cy = _draw_single_clause_diagram(ax, v, y)
         if w:
             width = max(width, w)
             coords[v.i] = (cx, cy)
         y -= CLAUSE_Y_SPACING
-    # draw conjunctions as dashed lines
     style = (0,(4,2))
     for cc,v1,v2 in conjunctions:
         if v1.i in coords and v2.i in coords:
@@ -289,15 +269,12 @@ def draw_reed_kellogg(doc, fig, ax):
             ax.plot([x2,x2],[y2,mid_y], lw=LINE_WIDTH, linestyle=style)
             ax.plot([x1,x2],[mid_y,mid_y], lw=LINE_WIDTH, linestyle=style)
             ax.text((x1+x2)/2, mid_y+TEXT_Y_OFFSET, cc.text, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
-    # adjust canvas
     height = Y_BASE_START - y + 0.5
     return width, height
-
 
 # --- Streamlit App ---
 def main():
     nlp = load_nlp_model()
-    st.set_page_config(layout="wide", page_title="Reed-Kellogg Diagrammer")
     st.title("Reed-Kellogg Sentence Diagrammer")
     text = st.text_area("Enter sentence:", value="The parents ate the cake and the children ate the cookies.")
     if st.button("Diagram Sentence") and text.strip():
@@ -317,6 +294,7 @@ def main():
         "They will plan and she will execute the project."
     ]:
         if st.button(ex):
+            st.session_state['sentence_input'] = ex
             st.experimental_rerun()
 
 if __name__ == '__main__':
