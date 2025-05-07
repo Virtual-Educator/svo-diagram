@@ -258,6 +258,6 @@ def main():
         "They ate and she danced."
     ]:
         if st.button(ex):
-            st.session_state['sentence_input']=ex; st.experimental_rerun()
+            st.session_state['sentence_input']=ex; st.rerun()
 
 if __name__=='__main__': main()
