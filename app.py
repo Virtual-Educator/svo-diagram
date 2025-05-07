@@ -5,7 +5,6 @@ st.set_page_config(layout="wide", page_title="Reed-Kellogg Sentence Diagrammer")
 import spacy
 import matplotlib.pyplot as plt
 import numpy as np
-from collections import defaultdict
 import math
 
 # --- spaCy Model Loading ---
@@ -27,7 +26,7 @@ MODIFIER_SLANT_OFFSET_Y = 0.08
 LINE_WIDTH = 1.5
 FONT_SIZE_MAIN = 12
 FONT_SIZE_MOD = 10
-Y_BASE_START = 0.8    # y-coordinate for top clause
+Y_BASE_START = 0.8    # top clause baseline
 CLAUSE_Y_SPACING = 0.7  # vertical spacing between clauses
 PP_Y_OFFSET = 0.15
 PP_X_SPACING = 0.4
@@ -162,17 +161,19 @@ def draw_appositives(ax, x_center, y_base, appos_list):
 def _draw_single_clause_diagram(ax, verb, y_base, x_offset=0):
     subj = next((t for t in verb.lefts if t.dep_ in ['nsubj','nsubjpass']), None)
     if verb.dep_ == 'conj' and not subj:
-        h = verb.head
-        while h and h.dep_ == 'conj': h = h.head
-        subj = next((t for t in h.lefts if t.dep_ in ['nsubj','nsubjpass']), None)
+        head = verb.head
+        while head and head.dep_ == 'conj': head = head.head
+        subj = next((t for t in head.lefts if t.dep_ in ['nsubj','nsubjpass']), None)
     if not subj:
         return None, None, None
 
+    # Text and widths
     s_txt = get_full_text(subj)
     v_txt = get_verb_phrase(verb)
     s_w = estimate_text_width(s_txt)
     v_w = estimate_text_width(v_txt)
 
+    # Positions
     x_s0 = 0.3 + x_offset
     x_s1 = x_s0 + s_w
     x_div_sv = x_s1
@@ -180,10 +181,12 @@ def _draw_single_clause_diagram(ax, verb, y_base, x_offset=0):
     x_v1 = x_v0 + v_w
     x_vc = (x_v0 + x_v1) / 2
 
+    # Baselines
     ax.plot([x_s0, x_s1], [y_base, y_base], 'k', lw=LINE_WIDTH)
     ax.plot([x_v0, x_v1], [y_base, y_base], 'k', lw=LINE_WIDTH)
     ax.plot([x_div_sv, x_div_sv], [y_base - DIVIDER_BELOW, y_base + DIVIDER_ABOVE], 'k', lw=LINE_WIDTH)
 
+    # Indirect object
     iobj = get_indirect_object(verb)
     if iobj:
         io_txt = get_full_text(iobj)
@@ -194,9 +197,118 @@ def _draw_single_clause_diagram(ax, verb, y_base, x_offset=0):
         ax.plot([sl_x0, sl_x0 + io_w], [sl_y0, sl_y0], 'k', lw=LINE_WIDTH)
         ax.text(sl_x0 + io_w/2, sl_y0 + TEXT_Y_OFFSET, io_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
 
+    # Direct object or complement
     dobj = get_direct_object(verb)
     comp = dobj or get_subject_complement(verb)
     x_end = x_v1
     if comp:
         c_txt = get_full_text(comp)
-        c_w = estimate_text
+        c_w = estimate_text_width(c_txt)
+        x_c0 = x_v1
+        x_c1 = x_c0 + c_w
+        ax.plot([x_c0, x_c1], [y_base, y_base], 'k', lw=LINE_WIDTH)
+        # verb-object divider up only
+        ax.plot([x_v1, x_v1], [y_base, y_base + DIVIDER_ABOVE], 'k', lw=LINE_WIDTH)
+        ax.text((x_c0 + x_c1)/2, y_base + TEXT_Y_OFFSET, c_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
+        x_end = x_c1
+
+        # Appositives
+        appos = get_appositives(comp)
+        if appos:
+            draw_appositives(ax, (x_c0 + x_c1)/2, y_base, appos)
+
+        # Modifiers & PPs on object
+        mods_c = get_modifiers(comp)
+        if mods_c: draw_modifiers_on_baseline(ax, (x_c0 + x_c1)/2, y_base, mods_c)
+        pps_c = get_prep_phrases(comp)
+        if pps_c: draw_prep_phrases(ax, (x_c0 + x_c1)/2, y_base, pps_c)
+
+    # Labels
+    ax.text((x_s0 + x_s1)/2, y_base + TEXT_Y_OFFSET, s_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
+    ax.text(x_vc, y_base + TEXT_Y_OFFSET, v_txt, ha='center', va='bottom', fontsize=FONT_SIZE_MAIN)
+
+    # Subject modifiers & PPs
+    mods_s = get_modifiers(subj)
+    if mods_s: draw_modifiers_on_baseline(ax, (x_s0 + x_s1)/2, y_base, mods_s)    
+    pps_s = get_prep_phrases(subj)
+    if pps_s: draw_prep_phrases(ax, (x_s0 + x_s1)/2, y_base, pps_s)
+
+    # Verb modifiers & PPs
+    advs = get_adverbial_modifiers(verb)
+    if advs: draw_adverbial_modifiers(ax, x_vc, y_base, advs)
+    pps_v = get_prep_phrases(verb)
+    if pps_v: draw_prep_phrases(ax, x_vc, y_base, pps_v)
+
+    return x_end + 0.3 + x_offset, x_vc, y_base
+
+# --- Diagram Function for Complex Sentences ---
+def draw_reed_kellogg(doc, fig, ax):
+    verbs = []
+    conjunctions = []
+    for tok in doc:
+        if tok.pos_ in ['VERB','AUX']:
+            if tok.dep_ == 'ROOT':
+                verbs.append(tok)
+            elif tok.dep_ == 'conj' and tok.head.pos_ in ['VERB','AUX']:
+                if tok.head not in verbs:
+                    verbs.append(tok.head)
+                verbs.append(tok)
+                cc = next((c for c in tok.children if c.dep_=='cc'),
+                          next((l for l in tok.lefts if l.dep_=='cc'), None))
+                if cc:
+                    v1, v2 = tok.head, tok
+                    if v1.i > v2.i: v1, v2 = v2, v1
+                    conjunctions.append((cc, v1, v2))
+    verbs = sorted(set(verbs), key=lambda t: t.i)
+
+    y = Y_BASE_START
+    coords = {}
+    max_w = 0
+    for v in verbs:
+        w, cx, cy = _draw_single_clause_diagram(ax, v, y)
+        if w:
+            max_w = max(max_w, w)
+            coords[v.i] = (cx, cy)
+        y -= CLAUSE_Y_SPACING
+
+    dash = (0, (4, 2))
+    for cc, v1, v2 in conjunctions:
+        if v1.i in coords and v2.i in coords:
+            x1, y1 = coords[v1.i]
+            x2, y2 = coords[v2.i]
+            mid_y = (y1 + y2) / 2
+            ax.plot([x1, x1], [y1, mid_y], 'k', lw=LINE_WIDTH, linestyle=dash)
+            ax.plot([x2, x2], [y2, mid_y], 'k', lw=LINE_WIDTH, linestyle=dash)
+            ax.plot([x1, x2], [mid_y, mid_y], 'k', lw=LINE_WIDTH, linestyle=dash)
+            ax.text((x1+x2)/2, mid_y + TEXT_Y_OFFSET, cc.text, ha='center', va='bottom', fontsize=FONT_SIZE_MOD)
+
+    height = Y_BASE_START - y + 0.5
+    return max_w, height
+
+# --- Streamlit App ---
+def main():
+    nlp = load_nlp_model()
+    st.title("Reed-Kellogg Sentence Diagrammer")
+    text = st.text_area("Enter sentence:", value="The parents ate the cake and the children ate the cookies.")
+    if st.button("Diagram Sentence") and text.strip():
+        doc = nlp(text.strip())
+        fig, ax = plt.subplots(figsize=(12, 8))
+        w, h = draw_reed_kellogg(doc, fig, ax)
+        if w and h:
+            ax.set_xlim(0, w)
+            ax.set_ylim(0, h)
+            ax.axis('off')
+            st.pyplot(fig)
+    st.subheader("Examples")
+    for ex in [
+        "He wrote a letter to his friend.",
+        "After dinner, the dog chased the cat that lived next door.",
+        "My friend, a talented artist, painted a mural.",
+        "They ate and she danced."
+    ]:
+        if st.button(ex):
+            st.session_state['sentence_input'] = ex
+            st.experimental_rerun()
+
+if __name__ == '__main__':
+    main()
