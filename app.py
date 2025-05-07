@@ -20,8 +20,8 @@ def load_nlp_model():
         return spacy.load(model_name)
 
 # --- Diagram Constants ---
-DIVIDER_ABOVE = 0.8    # how far divider extends above baseline
-DIVIDER_BELOW = 0.2    # how far divider extends below baseline
+DIVIDER_ABOVE = 0.3    # how far divider extends above baseline
+DIVIDER_BELOW = 0.1    # how far divider extends below baseline
 MODIFIER_SLANT_OFFSET_X = 0.03
 MODIFIER_SLANT_OFFSET_Y = 0.08
 LINE_WIDTH = 1.5
